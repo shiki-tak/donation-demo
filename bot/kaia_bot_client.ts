@@ -21,6 +21,12 @@ export type Config = {
   rpcEndpoint: string;
 };
 
+export interface WalletInfo {
+  type: 'walletconnect' | 'kaia';
+  address: string;
+  metadata?: SignClientTypes.Metadata;
+}
+
 export class KaiaBotClient {
   sbClient: SupabaseClient<any>;
   sbChannel: RealtimeChannel;
@@ -29,6 +35,7 @@ export class KaiaBotClient {
   wcTopics: { [key: string]: string };
   callbacks: { [key: string]: (event: any) => void };
   web3Client: Web3;
+  private walletInfo: { [userId: string]: WalletInfo } = {};
 
   constructor(conf: Config) {
     // supabase
@@ -96,11 +103,32 @@ export class KaiaBotClient {
     uri?: string;
     approval: () => Promise<SessionTypes.Struct>;
   }> {
-    return await this.wcSignClient.connect(params);
+    const result = await this.wcSignClient.connect(params);
+    return {
+      ...result,
+      approval: async () => {
+        const session = await result.approval();
+        const userId = session.topic;
+        await this.updateWCWalletInfo(userId);
+        return session;
+      }
+    };
   }
 
   async disconnect(params: EngineTypes.DisconnectParams): Promise<void> {
     await this.wcSignClient.disconnect(params);
+    if (params.topic) {
+      const userId = this.getUserIdByTopic(params.topic);
+      if (userId) {
+        delete this.walletInfo[userId];
+      }
+    }
+  }
+
+  removeWalletInfo(userId: string): void {
+    console.log(`Removing wallet info for user ${userId}`);
+    delete this.walletInfo[userId];
+    delete this.wcTopics[userId];
   }
 
   async request<T>(params: EngineTypes.RequestParams): Promise<T> {
@@ -117,27 +145,53 @@ export class KaiaBotClient {
 
   deleteTopic(to: string) {
     delete this.wcTopics[to];
+    delete this.walletInfo[to];
   }
 
-  getWalletInfo(
-    userId: string
-  ): { metadata: SignClientTypes.Metadata; addresses: Array<string> } | null {
+  setWalletInfo(userId: string, info: WalletInfo): void {
+    this.walletInfo[userId] = info;
+  }
+
+  getWalletInfo(userId: string): WalletInfo | null {
+    return this.walletInfo[userId] || null;
+  }
+
+  private async updateWCWalletInfo(userId: string): Promise<void> {
     const topic = this.wcTopics[userId] || "";
     try {
       const session = this.wcSignClient.session.get(topic);
-      if (session.expiry * 1000 <= Date.now() + 1000) {
-        return null;
+      if (session.expiry * 1000 > Date.now()) {
+        const address = session.namespaces["eip155"]?.accounts[0]?.split(":")[2] || "";
+        this.setWalletInfo(userId, {
+          type: 'walletconnect',
+          address: address,
+          metadata: session.peer.metadata
+        });
+      } else {
+        delete this.walletInfo[userId];
       }
-      return {
-        metadata: session.peer.metadata,
-        addresses:
-          session.namespaces["eip155"]?.accounts.map(
-            (a) => a.split(":")[2] || ""
-          ) || [],
-      };
     } catch (e) {
-      return null;
+      delete this.walletInfo[userId];
     }
+  }
+
+  setKaiaWalletInfo(userId: string, address: string): void {
+    this.setWalletInfo(userId, {
+      type: 'kaia',
+      address: address
+    });
+  }
+
+  isWalletConnectInfo(info: WalletInfo): info is WalletInfo & { type: 'walletconnect', metadata: SignClientTypes.Metadata } {
+    return info.type === 'walletconnect' && info.metadata !== undefined;
+  }
+
+  isKaiaWalletInfo(info: WalletInfo): info is WalletInfo & { type: 'kaia' } {
+    return info.type === 'kaia';
+  }
+
+  private getUserIdByTopic(topic: string): string | undefined {
+    return Object.keys(this.wcTopics).find(userId => this.wcTopics[userId] === topic);
   }
 
   // rpc

@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 Deno.serve(async (req: Request) => {
   const { destination, events } = await req.json();
+  console.log(`req: ${req}`);
   console.log(`destination: ${destination}, event num: ${events.length}`);
 
   const client = createClient(
