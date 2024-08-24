@@ -8,6 +8,48 @@ import { getSdkError } from "@walletconnect/utils";
 import { Transaction } from "web3-types";
 import axios from "axios";
 import { setTimeout } from 'timers/promises';
+import { SignClientTypes } from "@walletconnect/types";
+
+// unused
+interface KaiaWalletPrepareResponse {
+  chain_id: string;
+  request_key: string;
+  status: string;
+  expiration_time: number;
+}
+
+interface KaiaWalletBaseResponse {
+  status: 'completed' | 'canceled' | 'pending';
+  type: string;
+  chain_id: string;
+  request_key: string;
+  expiration_time: number;
+}
+
+interface KaiaWalletAuthResponse extends KaiaWalletBaseResponse {
+  type: 'auth';
+  result: {
+    klaytn_address: string;
+  };
+}
+
+interface KaiaWalletSendKlayResponse extends KaiaWalletBaseResponse {
+  type: 'send_klay';
+  result: {
+    signed_tx: string;
+    tx_hash: string;
+  };
+}
+
+type KaiaWalletResultResponse = KaiaWalletAuthResponse | KaiaWalletSendKlayResponse;
+
+function isKaiaWalletAuthResponse(response: KaiaWalletResultResponse): response is KaiaWalletAuthResponse {
+  return response.type === 'auth';
+}
+
+function isKaiaWalletSendKlayResponse(response: KaiaWalletResultResponse): response is KaiaWalletSendKlayResponse {
+  return response.type === 'send_klay';
+}
 
 const bot = createKaiaBotClient({
   sbUrl: process.env.SUPABASE_URL ?? "",
@@ -257,8 +299,15 @@ async function handleMetaMaskConnection(bot: KaiaBotClient, to: string, approval
 async function handleKaiaWalletConnection(bot: KaiaBotClient, to: string, requestKey: string): Promise<string> {
   try {
     console.log(`Starting Kaikas Wallet connection for user ${to} with requestKey: ${requestKey}`);
-    const address = await pollKaiaWalletResult(requestKey);
-    if (address) {
+    const response = await pollKaiaWalletResult(requestKey);
+    console.log(`Received response for user ${to}:`, JSON.stringify(response, null, 2));
+    console.log(`Response status:`, response?.status);
+    if (response) {
+      console.log(`Is KaiaWalletAuthResponse:`, isKaiaWalletAuthResponse(response));
+    }
+
+    if (response && response.status === 'completed' && isKaiaWalletAuthResponse(response)) {
+      const address = response.result.klaytn_address;
       const walletInfo: WalletInfo = {
         type: 'kaia',
         address: address
@@ -268,8 +317,11 @@ async function handleKaiaWalletConnection(bot: KaiaBotClient, to: string, reques
       console.log(`Kaikas Wallet connection successful for user ${to}:`, walletInfo);
       await handleSuccessfulConnection(bot, to);
       return 'success';
+    } else if (response && response.status === 'canceled') {
+      console.log(`Kaikas Wallet connection canceled by user ${to}`);
+      return 'canceled';
     } else {
-      console.log(`Kaikas Wallet connection failed for user ${to}: No address returned`);
+      console.log(`Kaikas Wallet connection failed for user ${to}: Unexpected response`, response);
       return 'error';
     }
   } catch (error) {
@@ -278,32 +330,27 @@ async function handleKaiaWalletConnection(bot: KaiaBotClient, to: string, reques
   }
 }
 
-async function pollKaiaWalletResult(requestKey: string, maxAttempts = 30, interval = 2000): Promise<string | null> {
-  console.log(`Starting to poll Kaikas Wallet result for requestKey: ${requestKey}`);
+async function pollKaiaWalletResult(requestKey: string, maxAttempts = 30, interval = 2000): Promise<KaiaWalletResultResponse | null> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      console.log(`Polling attempt ${i + 1} for requestKey: ${requestKey}`);
-      const resultResponse = await axios.get(`https://api.kaiawallet.io/api/v1/k/result/${requestKey}`);
-      console.log(`Received response for requestKey ${requestKey}:`, resultResponse.data);
-      const resultData = resultResponse.data;
-
-      if (resultData.status === 'completed' && resultData.type === 'auth') {
-        console.log(`Kaikas Wallet auth completed for requestKey ${requestKey}. Address:`, resultData.result.klaytn_address);
-        return resultData.result.klaytn_address;
-      } else if (resultData.status === 'canceled') {
-        console.log(`Kaikas Wallet auth canceled for requestKey ${requestKey}`);
-        return null;
+      const response = await axios.get<KaiaWalletResultResponse>(`https://api.kaiawallet.io/api/v1/k/result/${requestKey}`);
+      const data = response.data;
+      
+      console.log(`Polling attempt ${i + 1}, received data:`, JSON.stringify(data, null, 2));
+      
+      if (typeof data === 'string' || data.status === 'completed' || data.status === 'canceled') {
+        return data;
       }
     } catch (error) {
-      console.error(`Error polling Kaikas Wallet result for requestKey ${requestKey}:`, error);
+      console.error("Error polling Kaia Wallet result:", error);
     }
 
     await setTimeout(interval);
   }
 
-  console.log(`Polling timed out for requestKey ${requestKey}`);
   return null;
 }
+
 async function handleSuccessfulConnection(bot: KaiaBotClient, to: string) {
   console.log(`Entering handleSuccessfulConnection for user ${to}`);
   const walletInfo = bot.getWalletInfo(to);
@@ -424,24 +471,17 @@ async function handleSendTxInput(bot: KaiaBotClient, event: MessageEvent) {
 
 
 async function sendTx(bot: KaiaBotClient, event: MessageEvent, address: string, amount: string) {
+  const to = event.source.userId || "";
   try {
-    const to = event.source.userId || "";
     const walletInfo = bot.getWalletInfo(to);
     if (!walletInfo) {
-      const messages: Array<TextMessage> = [
-        {
-          type: "text",
-          text: "Connect wallet to send transaction",
-        },
-      ];
-      await bot.sendMessage(to, messages);
+      await bot.sendMessage(to, [{ type: "text", text: "Connect wallet to send transaction" }]);
       return;
     }
 
     // Convert amount to KLAY (in peb)
     let valueInPeb: bigint;
     try {
-      // Parse the amount as a float and convert to peb
       const amountInKLAY = parseFloat(amount);
       valueInPeb = BigInt(Math.floor(amountInKLAY * 1e18));
     } catch (error) {
@@ -457,75 +497,130 @@ async function sendTx(bot: KaiaBotClient, event: MessageEvent, address: string, 
     console.log(`Value in peb: ${valueInPeb}`);
     console.log(`Value in hex: ${valueInHex}`);
 
-    let uri = "";
-    let walletName = "";
     if (bot.isWalletConnectInfo(walletInfo)) {
-      walletName = walletInfo.metadata.name;
-      uri = process.env.MINI_WALLET_URL_COMPACT +
-        "/open/wallet/?url=" +
-        encodeURIComponent(walletInfo.metadata.redirect?.universal || "");
+      await handleMetaMaskTransaction(bot, to, walletInfo, address, valueInHex);
     } else if (bot.isKaiaWalletInfo(walletInfo)) {
-      walletName = "Kaia Wallet";
-      uri = "kaikas://wallet/api?request_key=..."; // FIXME
+      await handleKaiaWalletTransaction(bot, to, address, amount);
     } else {
       throw new Error("Unknown wallet type");
     }
 
-    let messages: Array<TextMessage> = [
-      {
-        type: "text",
-        text: `Open ${walletName} and confirm transaction`,
-        quickReply: {
-          items: [
-            {
-              type: "action",
-              action: {
-                type: "uri",
-                label: `Open Wallet`,
-                uri: uri,
-              },
-            },
-          ],
-        },
-      },
-    ];
-    await bot.sendMessage(to, messages);
+  } catch (e) {
+    console.error("Error in sendTx:", e);
+    await bot.sendMessage(to, [{ type: "text", text: "An error occurred while sending the transaction. Please try again." }]);
+  }
+}
 
-    const topic = bot.getTopic(to);
-    const tx: Transaction = {
-      from: walletInfo.address,
-      to: address,
-      value: valueInHex,
-    };
-    const gasPrice = await bot.getGasPrice();
-    const gas = await bot.estimateGas(tx);
-    const transactionId = await bot.request({
-      topic: topic,
-      chainId: "eip155:1001",
-      request: {
-        method: "eth_sendTransaction",
-        params: [
+async function handleMetaMaskTransaction(bot: KaiaBotClient, to: string, walletInfo: WalletInfo & { type: 'walletconnect', metadata: SignClientTypes.Metadata }, address: string, valueInHex: string) {
+  const uri = process.env.MINI_WALLET_URL_COMPACT +
+    "/open/wallet/?url=" +
+    encodeURIComponent(walletInfo.metadata.redirect?.universal || "");
+
+  let messages: Array<TextMessage> = [
+    {
+      type: "text",
+      text: `Open ${walletInfo.metadata.name} and confirm transaction`,
+      quickReply: {
+        items: [
           {
-            from: tx.from,
-            to: tx.to,
-            data: tx.data,
-            gasPrice: gasPrice,
-            gasLimit: gas,
-            value: tx.value,
+            type: "action",
+            action: {
+              type: "uri",
+              label: `Open Wallet`,
+              uri: uri,
+            },
           },
         ],
       },
+    },
+  ];
+  await bot.sendMessage(to, messages);
+
+  const topic = bot.getTopic(to);
+  const tx: Transaction = {
+    from: walletInfo.address,
+    to: address,
+    value: valueInHex,
+  };
+  const gasPrice = await bot.getGasPrice();
+  const gas = await bot.estimateGas(tx);
+  const transactionId = await bot.request({
+    topic: topic,
+    chainId: "eip155:1001",
+    request: {
+      method: "eth_sendTransaction",
+      params: [
+        {
+          from: tx.from,
+          to: tx.to,
+          data: tx.data,
+          gasPrice: gasPrice,
+          gasLimit: gas,
+          value: tx.value,
+        },
+      ],
+    },
+  });
+
+  await bot.sendMessage(to, [{ type: "text", text: `Transaction result\nhttps://baobab.klaytnscope.com/tx/${transactionId}` }]);
+}
+
+async function handleKaiaWalletTransaction(bot: KaiaBotClient, to: string, address: string, amount: string) {
+  try {
+    // Prepare transaction
+    const prepareResponse = await axios.post("https://api.kaiawallet.io/api/v1/k/prepare", {
+      type: "send_klay",
+      chain_id: "1001",
+      bapp: {
+        name: "LINE Bot",
+      },
+      transaction: {
+        to: address,
+        amount: amount
+      }
     });
 
-    messages = [
-      {
-        type: "text",
-        text: `Transaction result\nhttps://baobab.klaytnscope.com/tx/${transactionId}`,
-      },
-    ];
-    await bot.sendMessage(to, messages);
-  } catch (e) {
-    console.log(e);
+    const requestKey = prepareResponse.data.request_key;
+    console.log(`Kaia Wallet prepare response:`, prepareResponse.data);
+
+    // Send message to user with Kaia Wallet deep link
+    const kaiaUri = `kaikas://wallet/api?request_key=${requestKey}`;
+    const liffRelayUrl = `https://liff.line.me/2006143560-2EB6oe6l?uri=${encodeURIComponent(kaiaUri)}`;
+    
+    await bot.sendMessage(to, [{
+      type: "text",
+      text: "Please approve the transaction in Kaia Wallet",
+      quickReply: {
+        items: [
+          {
+            type: "action",
+            action: {
+              type: "uri",
+              label: "Open Kaia Wallet",
+              uri: liffRelayUrl
+            }
+          }
+        ]
+      }
+    }]);
+
+    // Poll for transaction result
+    const result = await pollKaiaWalletResult(requestKey);
+    if (result && result.status === 'completed') {
+      if (isKaiaWalletSendKlayResponse(result)) {
+        await bot.sendMessage(to, [{ type: "text", text: `Transaction result\nhttps://baobab.klaytnscope.com/tx/${result.result.tx_hash}` }]);
+      } else {
+        await bot.sendMessage(to, [{ type: "text", text: "Transaction completed, but unexpected response type received." }]);
+      }
+    } else if (result && result.status === 'canceled') {
+      await bot.sendMessage(to, [{ type: "text", text: "Transaction was cancelled." }]);
+    } else {
+      await bot.sendMessage(to, [{ type: "text", text: "Transaction failed or resulted in an unexpected state." }]);
+    }
+
+  } catch (error) {
+    console.error("Error in handleKaiaWalletTransaction:", error);
+    await bot.sendMessage(to, [{ type: "text", text: "An error occurred while processing the transaction with Kaia Wallet." }]);
   }
 }
 
