@@ -19,6 +19,7 @@ contract Donation is ERC721, ReentrancyGuard {
     }
 
     mapping(uint256 => Project) public projects;
+    uint256[] public projectIds;
 
     event ProjectCreated(uint256 projectId, address owner);
     event DonationMade(uint256 projectId, address donor, uint256 amount);
@@ -38,6 +39,8 @@ contract Donation is ERC721, ReentrancyGuard {
             totalFunds: 0,
             claimed: false
         });
+
+        projectIds.push(projectId);
 
         emit ProjectCreated(projectId, msg.sender);
     }
@@ -72,5 +75,13 @@ contract Donation is ERC721, ReentrancyGuard {
 
     function getProjectDetails(uint256 _projectId) external view returns (Project memory) {
         return projects[_projectId];
+    }
+
+    function getAllProjects() external view returns (Project[] memory) {
+        Project[] memory allProjects = new Project[](projectIds.length);
+        for (uint i = 0; i < projectIds.length; i++) {
+            allProjects[i] = projects[projectIds[i]];
+        }
+        return allProjects;
     }
 }
