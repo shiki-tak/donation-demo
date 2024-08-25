@@ -41,7 +41,15 @@ interface KaiaWalletSendKlayResponse extends KaiaWalletBaseResponse {
   };
 }
 
-type KaiaWalletResultResponse = KaiaWalletAuthResponse | KaiaWalletSendKlayResponse;
+interface KaiaWalletExecuteContractResponse extends KaiaWalletBaseResponse {
+  type: 'execute_contract';
+  result: {
+    signed_tx: string;
+    tx_hash: string;
+  };
+}
+
+type KaiaWalletResultResponse = KaiaWalletAuthResponse | KaiaWalletSendKlayResponse | KaiaWalletExecuteContractResponse;
 
 function isKaiaWalletAuthResponse(response: KaiaWalletResultResponse): response is KaiaWalletAuthResponse {
   return response.type === 'auth';
@@ -49,6 +57,10 @@ function isKaiaWalletAuthResponse(response: KaiaWalletResultResponse): response 
 
 function isKaiaWalletSendKlayResponse(response: KaiaWalletResultResponse): response is KaiaWalletSendKlayResponse {
   return response.type === 'send_klay';
+}
+
+function isKaiaWalletExecuteContractResponse(response: KaiaWalletResultResponse): response is KaiaWalletExecuteContractResponse {
+  return response.type === 'execute_contract';
 }
 
 const bot = createKaiaBotClient({
@@ -60,7 +72,14 @@ const bot = createKaiaBotClient({
   rpcEndpoint: process.env.RPC_ENDPOINT ?? "",
 });
 
-const userStates: { [userId: string]: { state: string; address?: string; amount?: string } } = {};
+interface UserState {
+  state: string;
+  address?: string;
+  amount?: string;
+  projectId?: string;
+}
+
+const userStates: { [userId: string]: UserState } = {};
 
 bot.on("message", (event: MessageEvent) => {
   if (event.message.type == "text") {
@@ -84,15 +103,27 @@ async function handleMessage(bot: KaiaBotClient, event: MessageEvent) {
     case "/send_tx":
       initiateSendTx(bot, event);
       break;
+    case "/donate":
+      initiateDonate(bot, event);
+      break;
     case "/disconnect":
       disconnect(bot, event);
       break;
     default:
-      if (userId in userStates) {
-        handleSendTxInput(bot, event);
-      } else {
-        say_hello(bot, event);
-      }
+      await handleDefaultCase(bot, event, userId);
+  }
+}
+
+async function handleDefaultCase(bot: KaiaBotClient, event: MessageEvent, userId: string) {
+  const userState = userStates[userId];
+  if (userState && typeof userState === 'object' && 'state' in userState) {
+    if (userState.state.startsWith('WAITING_FOR_')) {
+      await handleUserInput(bot, event);
+    } else {
+      await say_hello(bot, event);
+    }
+  } else {
+    await say_hello(bot, event);
   }
 }
 
@@ -433,43 +464,6 @@ async function initiateSendTx(bot: KaiaBotClient, event: MessageEvent) {
   await bot.sendMessage(userId, [{ type: "text", text: "Please enter the address to send to:" }]);
 }
 
-async function handleSendTxInput(bot: KaiaBotClient, event: MessageEvent) {
-  const userId = event.source.userId || "";
-  const message = (event.message as TextMessage).text;
-  const userState = userStates[userId];
-
-  if (!userState) {
-    console.error(`User state not found for user ID: ${userId}`);
-    await bot.sendMessage(userId, [{ type: "text", text: "An error occurred. Please try /send_tx again." }]);
-    await show_commands(bot, event);
-    return;
-  }
-
-  if (userState.state === 'WAITING_FOR_ADDRESS') {
-    userState.address = message;
-    userState.state = 'WAITING_FOR_AMOUNT';
-    await bot.sendMessage(userId, [{ type: "text", text: "Please enter the amount to send:" }]);
-  } else if (userState.state === 'WAITING_FOR_AMOUNT') {
-    userState.amount = message;
-    if (userState.address) {
-      await sendTx(bot, event, userState.address, userState.amount);
-    } else {
-      console.error(`Address not found in user state for user ID: ${userId}`);
-      await bot.sendMessage(userId, [{ type: "text", text: "An error occurred. Please try /send_tx again." }]);
-    }
-    delete userStates[userId];
-  } else {
-    console.error(`Invalid state ${userState.state} for user ID: ${userId}`);
-    await bot.sendMessage(userId, [{ type: "text", text: "An error occurred. Please try /send_tx again." }]);
-    delete userStates[userId];
-  }
-
-  if (!userStates[userId]) {
-    await show_commands(bot, event);
-  }
-}
-
-
 async function sendTx(bot: KaiaBotClient, event: MessageEvent, address: string, amount: string) {
   const to = event.source.userId || "";
   try {
@@ -624,6 +618,179 @@ async function handleKaiaWalletTransaction(bot: KaiaBotClient, to: string, addre
   }
 }
 
+async function initiateDonate(bot: KaiaBotClient, event: MessageEvent) {
+  const userId = event.source.userId || "";
+  const wallet = bot.getWalletInfo(userId);
+  if (!wallet) {
+    await bot.sendMessage(userId, [{ type: "text", text: "Connect wallet to make a donation" }]);
+    await show_commands(bot, event);
+    return;
+  }
+
+  userStates[userId] = { state: 'WAITING_FOR_PROJECT_ID' };
+  await bot.sendMessage(userId, [{ type: "text", text: "Please enter the project ID you want to donate to:" }]);
+}
+
+
+async function handleUserInput(bot: KaiaBotClient, event: MessageEvent) {
+  const userId = event.source.userId || "";
+  const message = (event.message as TextMessage).text;
+  const userState = userStates[userId];
+
+  if (!userState) {
+    console.error(`User state not found for user ID: ${userId}`);
+    await bot.sendMessage(userId, [{ type: "text", text: "An error occurred. Please try again." }]);
+    await show_commands(bot, event);
+    return;
+  }
+
+  switch (userState.state) {
+    case 'WAITING_FOR_ADDRESS':
+      userState.address = message;
+      userState.state = 'WAITING_FOR_AMOUNT';
+      await bot.sendMessage(userId, [{ type: "text", text: "Please enter the amount to send:" }]);
+      break;
+    case 'WAITING_FOR_AMOUNT':
+      userState.amount = message;
+      if (userState.address) {
+        await sendTx(bot, event, userState.address, userState.amount);
+      } else {
+        console.error(`Address not found in user state for user ID: ${userId}`);
+        await bot.sendMessage(userId, [{ type: "text", text: "An error occurred. Please try /send_tx again." }]);
+      }
+      delete userStates[userId];
+      break;
+    case 'WAITING_FOR_PROJECT_ID':
+      userState.projectId = message;
+      userState.state = 'WAITING_FOR_DONATION_AMOUNT';
+      await bot.sendMessage(userId, [{ type: "text", text: "Please enter the amount you want to donate:" }]);
+      break;
+    case 'WAITING_FOR_DONATION_AMOUNT':
+      userState.amount = message;
+      if (userState.projectId) {
+        await executeDonation(bot, event, userState.projectId, userState.amount);
+      } else {
+        console.error(`Project ID not found in user state for user ID: ${userId}`);
+        await bot.sendMessage(userId, [{ type: "text", text: "An error occurred. Please try /donate again." }]);
+      }
+      delete userStates[userId];
+      break;
+    default:
+      console.error(`Invalid state ${userState.state} for user ID: ${userId}`);
+      await bot.sendMessage(userId, [{ type: "text", text: "An error occurred. Please try again." }]);
+      delete userStates[userId];
+  }
+
+  if (!userStates[userId]) {
+    await show_commands(bot, event);
+  }
+}
+
+async function executeDonation(bot: KaiaBotClient, event: MessageEvent, projectId: string, amount: string) {
+  const to = event.source.userId || "";
+  try {
+    const walletInfo = bot.getWalletInfo(to);
+    if (!walletInfo) {
+      await bot.sendMessage(to, [{ type: "text", text: "Connect wallet to make a donation" }]);
+      return;
+    }
+
+    if (!bot.isKaiaWalletInfo(walletInfo)) {
+      await bot.sendMessage(to, [{ type: "text", text: "This function is currently only supported for Kaia Wallet" }]);
+      return;
+    }
+
+    // Convert amount to wei
+    let valueInWei: bigint;
+    try {
+      const amountInEther = parseFloat(amount);
+      valueInWei = BigInt(Math.floor(amountInEther * 1e18));
+    } catch (error) {
+      console.error('Error parsing amount:', error);
+      await bot.sendMessage(to, [{ type: "text", text: "Invalid amount. Please enter a valid number." }]);
+      return;
+    }
+
+    // Convert to hex
+    const valueInHex = `0x${valueInWei.toString(16)}`;
+
+    console.log(`Original amount: ${amount} KAIA`);
+    console.log(`Value in wei: ${valueInWei}`);
+    console.log(`Value in hex: ${valueInHex}`);
+
+    // Prepare transaction
+    const contractAddress = "0x718A7bd29A562554Df17882181D0aD73d6C4737e"; // FIXME
+    const prepareResponse = await axios.post("https://api.kaiawallet.io/api/v1/k/prepare", {
+      type: "execute_contract",
+      chain_id: "1001",
+      bapp: {
+        name: "LINE Bot",
+      },
+      transaction: {
+        abi: JSON.stringify({
+          constant: false,
+          inputs: [
+            {
+              name: "_projectId",
+              type: "uint256"
+            }
+          ],
+          name: "donate",
+          outputs: [],
+          payable: true,
+          stateMutability: "payable",
+          type: "function"
+        }),
+        value: valueInHex,
+        to: contractAddress,
+        params: JSON.stringify([projectId])
+      }
+    });
+
+    const requestKey = prepareResponse.data.request_key;
+    console.log(`Kaia Wallet prepare response:`, prepareResponse.data);
+
+    // Send message to user with Kaia Wallet deep link
+    const kaiaUri = `kaikas://wallet/api?request_key=${requestKey}`;
+    const liffRelayUrl = `https://liff.line.me/2006143560-2EB6oe6l?uri=${encodeURIComponent(kaiaUri)}`;
+    
+    await bot.sendMessage(to, [{
+      type: "text",
+      text: "Please approve the donation in Kaia Wallet",
+      quickReply: {
+        items: [
+          {
+            type: "action",
+            action: {
+              type: "uri",
+              label: "Open Kaia Wallet",
+              uri: liffRelayUrl
+            }
+          }
+        ]
+      }
+    }]);
+
+    // Poll for transaction result
+    const result = await pollKaiaWalletResult(requestKey);
+    if (result && result.status === 'completed') {
+      if (isKaiaWalletExecuteContractResponse(result)) {
+        await bot.sendMessage(to, [{ type: "text", text: `Donation successful! Transaction hash: ${result.result.tx_hash}\nView on explorer: https://baobab.klaytnscope.com/tx/${result.result.tx_hash}` }]);
+      } else {
+        await bot.sendMessage(to, [{ type: "text", text: "Donation completed, but unexpected response type received." }]);
+      }
+    } else if (result && result.status === 'canceled') {
+      await bot.sendMessage(to, [{ type: "text", text: "Donation was cancelled." }]);
+    } else {
+      await bot.sendMessage(to, [{ type: "text", text: "Donation failed or resulted in an unexpected state." }]);
+    }
+
+  } catch (error) {
+    console.error("Error in executeDonation:", error);
+    await bot.sendMessage(to, [{ type: "text", text: "An error occurred while processing the donation. Please try again." }]);
+  }
+}
+
 async function disconnect(bot: KaiaBotClient, event: MessageEvent) {
   const to = event.source.userId || "";
   try {
@@ -700,6 +867,14 @@ async function show_commands(bot: KaiaBotClient, event: MessageEvent) {
               type: "message",
               label: "/send_tx",
               text: "/send_tx",
+            },
+          },
+          {
+            type: "action",
+            action: {
+              type: "message",
+              label: "/donate",
+              text: "/donate",
             },
           },
           {
