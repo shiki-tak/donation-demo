@@ -6,7 +6,7 @@
 - Please prepare .env to execute the script.
 ```
 PRIVATE_KEY=your private key 1
-DONOR_PRIVATE_KEY=your private key 1
+DONOR_PRIVATE_KEY=your private key 2
 CONTRACT_ADDRESS=0x718A7bd29A562554Df17882181D0aD73d6C4737e
 ```
 

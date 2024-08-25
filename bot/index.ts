@@ -2,7 +2,7 @@
 
 import dotenv from "dotenv";
 dotenv.config();
-import { MessageEvent, TextMessage } from "@line/bot-sdk";
+import { MessageEvent, TextMessage, TemplateMessage } from "@line/bot-sdk";
 import { KaiaBotClient, createKaiaBotClient, WalletInfo } from "./kaia_bot_client";
 import { getSdkError } from "@walletconnect/utils";
 import { Transaction } from "web3-types";
@@ -106,6 +106,9 @@ async function handleMessage(bot: KaiaBotClient, event: MessageEvent) {
     case "/donate":
       initiateDonate(bot, event);
       break;
+    case "/project_list":
+      projectList(bot, event);
+      break;
     case "/disconnect":
       disconnect(bot, event);
       break;
@@ -158,6 +161,22 @@ async function say_hello(bot: KaiaBotClient, event: MessageEvent) {
                 type: "message",
                 label: "/send_tx",
                 text: "/send_tx",
+              },
+            },
+            {
+              type: "action",
+              action: {
+                type: "message",
+                label: "/donate",
+                text: "/donate",
+              },
+            },
+            {
+              type: "action",
+              action: {
+                type: "message",
+                label: "/project_list",
+                text: "/project_list",
               },
             },
             {
@@ -451,6 +470,30 @@ async function myWallet(bot: KaiaBotClient, event: MessageEvent) {
   show_commands(bot, event);
 }
 
+async function projectList(bot: KaiaBotClient, event: MessageEvent) {
+  const to = event.source.userId || "";
+  const url = process.env.PROJECT_LIST_URL || "";
+  const messages: Array<TemplateMessage> = [
+    {
+      type: "template",
+      altText: "Donation Project list",
+      template: {
+        type: "buttons",
+        text: "Donation Project list",
+        actions: [
+          {
+            type: "uri",
+            label: "Open web page",
+            uri: url
+          }
+        ]
+      }
+    }
+  ];
+
+  await bot.sendMessage(to, messages);
+}
+
 async function initiateSendTx(bot: KaiaBotClient, event: MessageEvent) {
   const userId = event.source.userId || "";
   const wallet = bot.getWalletInfo(userId);
@@ -719,7 +762,7 @@ async function executeDonation(bot: KaiaBotClient, event: MessageEvent, projectI
     console.log(`Value in hex: ${valueInHex}`);
 
     // Prepare transaction
-    const contractAddress = "0x718A7bd29A562554Df17882181D0aD73d6C4737e"; // FIXME
+    const contractAddress = process.env.CONTRACT_ADDRESS;
     const prepareResponse = await axios.post("https://api.kaiawallet.io/api/v1/k/prepare", {
       type: "execute_contract",
       chain_id: "1001",
@@ -875,6 +918,14 @@ async function show_commands(bot: KaiaBotClient, event: MessageEvent) {
               type: "message",
               label: "/donate",
               text: "/donate",
+            },
+          },
+          {
+            type: "action",
+            action: {
+              type: "message",
+              label: "/project_list",
+              text: "/project_list",
             },
           },
           {
