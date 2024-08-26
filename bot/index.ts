@@ -2,7 +2,7 @@
 
 import dotenv from "dotenv";
 dotenv.config();
-import { MessageEvent, TextMessage, TemplateMessage } from "@line/bot-sdk";
+import { MessageEvent, TextMessage, ImageMessage, TemplateMessage } from "@line/bot-sdk";
 import { KaiaBotClient, createKaiaBotClient, WalletInfo } from "./kaia_bot_client";
 import { getSdkError } from "@walletconnect/utils";
 import { Transaction } from "web3-types";
@@ -818,7 +818,26 @@ async function executeDonation(bot: KaiaBotClient, event: MessageEvent, projectI
     const result = await pollKaiaWalletResult(requestKey);
     if (result && result.status === 'completed') {
       if (isKaiaWalletExecuteContractResponse(result)) {
-        await bot.sendMessage(to, [{ type: "text", text: `Donation successful! Transaction hash: ${result.result.tx_hash}\nView on explorer: https://baobab.klaytnscope.com/tx/${result.result.tx_hash}` }]);
+        const txHash = result.result.tx_hash;
+        await bot.sendMessage(to, [{ type: "text", text: `Donation successful! Transaction hash: ${txHash}\nView on explorer: https://baobab.klaytnscope.com/tx/${result.result.tx_hash}` }]);
+        // Upload the certificate to IPFS and send it to the user as an ImageMessage.
+        try {
+          const certificateResponse = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/generate-certificate`, { txHash });
+          const ipfsUrl = certificateResponse.data.ipfsUrl;
+
+          // Send the certificate as an ImageMessage
+          const imageMessage: ImageMessage = {
+            type: "image",
+            originalContentUrl: ipfsUrl,
+            previewImageUrl: ipfsUrl
+          };
+          await bot.sendMessage(to, [imageMessage]);
+          
+          await bot.sendMessage(to, [{ type: "text", text: "Here's your donation certificate! Thank you for your contribution." }]);
+        } catch (error) {
+          console.error("Error generating or sending certificate:", error);
+          await bot.sendMessage(to, [{ type: "text", text: "An error occurred while generating your donation certificate. However, your donation was successful." }]);
+        }      
       } else {
         await bot.sendMessage(to, [{ type: "text", text: "Donation completed, but unexpected response type received." }]);
       }

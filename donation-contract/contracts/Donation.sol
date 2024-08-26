@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract Donation is ERC721, ReentrancyGuard {
     uint256 private _nextProjectId = 1;
-    uint256 private _nextTokenId = 1;
+    uint256 private _nextCertificateId = 1;
 
     struct Project {
         uint256 id;
@@ -18,11 +18,19 @@ contract Donation is ERC721, ReentrancyGuard {
         bool claimed;
     }
 
+    struct Certificate {
+        uint256 timestamp;
+        uint256 projectId;
+        address donor;
+        uint256 amount;
+    }
+
     mapping(uint256 => Project) public projects;
+    mapping(uint256 => Certificate) public certificates;
     uint256[] public projectIds;
 
     event ProjectCreated(uint256 projectId, address owner);
-    event DonationMade(uint256 projectId, address donor, uint256 amount);
+    event DonationMade(uint256 projectId, address donor, uint256 amount, uint256 certificateId);
     event FundsClaimed(uint256 projectId, address owner, uint256 amount);
 
     constructor() ERC721("DonationNFT", "CFNFT") {}
@@ -52,10 +60,16 @@ contract Donation is ERC721, ReentrancyGuard {
 
         project.totalFunds += msg.value;
 
-        uint256 tokenId = _nextTokenId++;
-        _safeMint(msg.sender, tokenId);
+        uint256 certificateId = _nextCertificateId++;
+        _safeMint(msg.sender, certificateId);
+        certificates[certificateId] = Certificate({
+            timestamp: block.timestamp,
+            projectId: _projectId,
+            donor: msg.sender,
+            amount: msg.value
+        });
 
-        emit DonationMade(_projectId, msg.sender, msg.value);
+        emit DonationMade(_projectId, msg.sender, msg.value, certificateId);
     }
 
     function claimFunds(uint256 _projectId) external nonReentrant {
@@ -83,5 +97,10 @@ contract Donation is ERC721, ReentrancyGuard {
             allProjects[i] = projects[projectIds[i]];
         }
         return allProjects;
+    }
+
+    function getCertificateDetails(uint256 _certificateId) external view returns (Certificate memory) {
+        require(_ownerOf(_certificateId) != address(0), "Certificate does not exist");
+        return certificates[_certificateId];
     }
 }

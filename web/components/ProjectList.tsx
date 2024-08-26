@@ -51,7 +51,7 @@ const ProjectList: React.FC = () => {
           provider = new JsonRpcProvider("https://public-en-baobab.klaytn.net");
         }
         
-        const contractAddress = '0xc2D15AA2bD88345ca6BF50be71214618D0F8D6bb';
+        const contractAddress = '0x191F0dbAf65D8c0A0Ae9DF336BFF3dA10ae38524';
         const contract = new Contract(contractAddress, donationABI, provider);
 
         const allProjects = await contract.getAllProjects();
