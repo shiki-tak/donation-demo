@@ -492,6 +492,9 @@ async function projectList(bot: KaiaBotClient, event: MessageEvent) {
   ];
 
   await bot.sendMessage(to, messages);
+
+  show_commands(bot, event);
+  
 }
 
 async function initiateSendTx(bot: KaiaBotClient, event: MessageEvent) {
