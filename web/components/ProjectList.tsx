@@ -10,6 +10,7 @@ const donationABI = [
       {
         components: [
           { internalType: "uint256", name: "id", type: "uint256" },
+          { internalType: "string", name: "title", type: "string" },
           { internalType: "uint256", name: "goal", type: "uint256" },
           { internalType: "string", name: "description", type: "string" },
           { internalType: "uint256", name: "deadline", type: "uint256" },
@@ -51,18 +52,19 @@ const ProjectList: React.FC = () => {
           provider = new JsonRpcProvider("https://public-en-baobab.klaytn.net");
         }
         
-        const contractAddress = '0x191F0dbAf65D8c0A0Ae9DF336BFF3dA10ae38524';
+        const contractAddress = process.env.CONTRACT_ADDRESS || '';
+        console.log(`contractAddress: ${contractAddress}`);
         const contract = new Contract(contractAddress, donationABI, provider);
 
         const allProjects = await contract.getAllProjects();
         setProjects(allProjects.map((project: any) => ({
-          id: Number(project.id),
-          goal: formatKAIA(project.goal),
-          description: project.description,
-          deadline: Number(project.deadline),
-          owner: project.owner,
-          totalFunds: formatKAIA(project.totalFunds),
-          claimed: project.claimed,
+            id: Number(project.id),
+            goal: formatKAIA(project.goal),
+            description: project.description,
+            deadline: Number(project.deadline),
+            owner: project.owner,
+            totalFunds: formatKAIA(project.totalFunds),
+            claimed: project.claimed,
         })));
         setError(null);
       } catch (error) {

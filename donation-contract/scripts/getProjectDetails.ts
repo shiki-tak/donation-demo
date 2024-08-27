@@ -1,7 +1,7 @@
 import { ethers } from "hardhat";
 
 async function main() {
-    const contractAddress = process.env.CONTRACT_ADDRESS || "0x23302d1f12417151084aEA3f767082eb869Dc6CE";;
+    const contractAddress = process.env.CONTRACT_ADDRESS || '';
 
     const projectId = parseInt(process.env.PROJECT_ID || "");
 
@@ -21,15 +21,16 @@ async function main() {
 
         console.log("Project Details:");
         console.log("ID:", projectDetails[0].toString());
-        console.log("Goal:", ethers.formatEther(projectDetails[1]), "KAIA");
-        console.log("Description:", projectDetails[2]);
-        console.log("Deadline:", new Date(Number(projectDetails[3]) * 1000).toLocaleString());
-        console.log("Owner:", projectDetails[4]);
-        console.log("Total Funds:", ethers.formatEther(projectDetails[5]), "KAIA");
-        console.log("Claimed:", projectDetails[6]);
+        console.log("Title: ", projectDetails[1]);
+        console.log("Goal:", ethers.formatEther(projectDetails[2]), "KAIA");
+        console.log("Description:", projectDetails[3]);
+        console.log("Deadline:", new Date(Number(projectDetails[4]) * 1000).toLocaleString());
+        console.log("Owner:", projectDetails[5]);
+        console.log("Total Funds:", ethers.formatEther(projectDetails[6]), "KAIA");
+        console.log("Claimed:", projectDetails[7]);
 
         const currentTimestamp = Math.floor(Date.now() / 1000);
-        const deadlineTimestamp = Number(projectDetails[3]);
+        const deadlineTimestamp = Number(projectDetails[4]);
         const remainingTimeInSeconds = deadlineTimestamp - currentTimestamp;
 
         if (remainingTimeInSeconds > 0) {
@@ -38,8 +39,8 @@ async function main() {
             console.log("Project has ended");
         }
 
-        const goalAmount = Number(ethers.formatEther(projectDetails[1]));
-        const raisedAmount = Number(ethers.formatEther(projectDetails[5]));
+        const goalAmount = Number(ethers.formatEther(projectDetails[2]));
+        const raisedAmount = Number(ethers.formatEther(projectDetails[6]));
         const progressPercentage = (raisedAmount / goalAmount) * 100;
         console.log(`Progress: ${progressPercentage.toFixed(2)}% (${raisedAmount} KAIA / ${goalAmount} KAIA)`);
 

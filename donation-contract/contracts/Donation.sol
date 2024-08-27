@@ -10,6 +10,7 @@ contract Donation is ERC721, ReentrancyGuard {
 
     struct Project {
         uint256 id;
+        string title;
         uint256 goal;
         string description;
         uint256 deadline;
@@ -35,11 +36,12 @@ contract Donation is ERC721, ReentrancyGuard {
 
     constructor() ERC721("DonationNFT", "CFNFT") {}
 
-    function createProject(uint256 _goal, string memory _description, uint256 _durationInSeconds) external {
+    function createProject(string memory _title, uint256 _goal, string memory _description, uint256 _durationInSeconds) external {
         uint256 projectId = _nextProjectId++;
 
         projects[projectId] = Project({
             id: projectId,
+            title: _title,
             goal: _goal,
             description: _description,
             deadline: block.timestamp + _durationInSeconds,
