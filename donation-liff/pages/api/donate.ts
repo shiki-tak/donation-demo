@@ -29,7 +29,7 @@ export default async function handler(
     // Convert to hex
     const valueInHex = `0x${valueInWei.toString(16)}`;
 
-    const contractAddress = process.env.CONTRACT_ADDRESS || '';
+    const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '';
 
     try {
     // Prepare transaction

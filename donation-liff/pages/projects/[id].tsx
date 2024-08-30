@@ -4,6 +4,10 @@ import { Web3Provider, JsonRpcProvider, formatUnits } from "@kaiachain/ethers-ex
 import { Contract, BigNumberish } from 'ethers';
 import liff from '@line/liff';
 import axios from 'axios';
+import Image from 'next/image';
+import { Calendar, CheckCircle, User, Loader } from 'lucide-react';
+
+import Modal from '../../components/Modal';
 
 const donationABI = [
     {
@@ -53,9 +57,23 @@ const ProjectDetail: React.FC = () => {
 
     const [modalMessage, setModalMessage] = useState('');
     const [isModalError, setIsModalError] = useState(false);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '';
-    const apiRrl = process.env.NEXT_PUBLIC_API_URL || '';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+
+
+    const getProjectImageUrl = (projectId: number): string => {
+        const imageUrls = {
+          1: "/images/1.png",
+          2: "/images/2.png",
+          3: "/images/3.png",
+          4: "/images/4.png"
+        };
+      
+        return imageUrls[projectId as keyof typeof imageUrls] || "/images/default-project.jpg";
+      };
+      
 
     const fetchProject = useCallback(async () => {
         if (!id) return;
@@ -88,12 +106,11 @@ const ProjectDetail: React.FC = () => {
             console.error('Error fetching project:', error);
             setError(`Error fetching project: ${error}`);
         }
-    }, [id, setDonationAmount]);
+    }, [id, contractAddress]);
 
     useEffect(() => {
         fetchProject();
 
-        // LIFF initialization and user profile fetching
         if (liff.isInClient() || liff.isLoggedIn()) {
             liff.getProfile().then((profile) => {
                 setUserName(profile.displayName);
@@ -101,7 +118,7 @@ const ProjectDetail: React.FC = () => {
                 console.error('Error getting user profile:', err);
             });
         }
-    }, [id]);
+    }, [fetchProject]);
 
     const formatKAIA = (value: BigNumberish): string => {
         return parseFloat(formatUnits(value, 18)).toFixed(2);
@@ -113,8 +130,7 @@ const ProjectDetail: React.FC = () => {
         setIsProcessing(true);
         try {
             console.log('Starting donation process...');
-            // Prepare donation
-            const prepareResponse = await axios.post(`${apiRrl}/api/donate`, {
+            const prepareResponse = await axios.post(`${apiUrl}/api/donate`, {
                 projectId: project.id,
                 amount: donationAmount
             });
@@ -123,43 +139,45 @@ const ProjectDetail: React.FC = () => {
 
             const { requestKey } = prepareResponse.data;
 
-            // Open Kaia Wallet
             const kaiaUri = `kaikas://wallet/api?request_key=${requestKey}`;
             const liffRelayUrl = `https://liff.line.me/2006143560-2EB6oe6l?uri=${encodeURIComponent(kaiaUri)}`;
-        
+
             console.log('Opening Kaia Wallet with URI:', kaiaUri);
             await liff.openWindow({
                 url: liffRelayUrl,
                 external: true
             });
 
-            // Poll for result
             console.log('Polling for result...');
-            const resultResponse = await axios.get(`${apiRrl}/api/result?requestKey=${requestKey}`);
+            const resultResponse = await axios.get(`${apiUrl}/api/result?requestKey=${requestKey}`);
             console.log('Result response:', resultResponse.data);
-            alert(`Result response: ${JSON.stringify(resultResponse.data, null, 2)}`);
             const { status, result } = resultResponse.data;
             const txHash = result.tx_hash;
 
             if (status === 'completed' && txHash) {
                 console.log('Donation successful. Transaction hash:', txHash);
-                alert(`Donation successful! Transaction hash: ${txHash}`);
-                // Here you can add code to update the UI or refresh the project data
+                setModalMessage("Donation successful!");
+                setIsModalError(false);
                 await new Promise(resolve => setTimeout(resolve, 3000));
                 await fetchProject();
             } else if (status === 'canceled') {
                 console.log('Donation was cancelled');
-                alert("Donation was cancelled.");
+                setModalMessage("Donation was cancelled.");
+                setIsModalError(true);
             } else {
                 console.log('Unexpected donation status:', status);
-                alert("Donation failed or resulted in an unexpected state.");
+                setModalMessage("Donation failed or resulted in an unexpected state.");
+                setIsModalError(true);
             }
+            setIsModalOpen(true);
         } catch (error) {
             console.error("Detailed error in handleDonate:", error);
             if (axios.isAxiosError(error)) {
                 console.error("Axios error details:", error.response?.data);
             }
-            alert(`An error occurred while processing the donation. Please check the console for details and try again.: ${error}`);
+            setModalMessage(`An error occurred while processing the donation. Please try again.`);
+            setIsModalError(true);
+            setIsModalOpen(true);
         } finally {
             setIsProcessing(false);
         }
@@ -170,35 +188,28 @@ const ProjectDetail: React.FC = () => {
         const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
         const liffUrl = `https://liff.line.me/${liffId}`;
 
+        const imageUrl = "https://drive.usercontent.google.com/download?id=14fPyHLPBunY-HhsA8tashjxj32Z4crRl&export=view&authuser=0";
+
         try {
             const result = await liff.shareTargetPicker([
-                // {
-                //     type: 'text',
-                //     text: `${userName} is supporting a project. Would you like to join?`
-                // }
                 {
                     type: "template",
                     altText: `${userName} is supporting a project. Would you like to join?`,
                     template: {
-                      type: "buttons",
-                    //   thumbnailImageUrl: `https://picsum.photos/seed/${project.id}/1024/1024`,
-                      imageAspectRatio: "rectangle",
-                      imageSize: "cover",
-                      imageBackgroundColor: "#FFFFFF",
-                    //   title: `Support Project ${project.id}`,
-                      text: `Your friend ${userName} is supporting a project #${project.id}. Why not check out the project details and see if you'd like to support it too?`,
-                      actions: [
-                        {
-                          type: "uri",
-                          label: "View Details",
-                          uri: `${liffUrl}?projectId=${project.id}`
-                        }
-                        // {
-                        //   type: "uri",
-                        //   label: "Support Now",
-                        //   uri: `${liffUrl}?projectId=${project.id}&action=support`
-                        // }
-                      ]
+                        type: "buttons",
+                        thumbnailImageUrl: imageUrl,
+                        imageAspectRatio: "rectangle",
+                        imageSize: "cover",
+                        imageBackgroundColor: "#FFFFFF",
+                        title: `${userName} joined project #${project.id}.`,
+                        text: "Discover this project and see if you'd like to contribute!",
+                        actions: [
+                            {
+                                type: "uri",
+                                label: "View Details",
+                                uri: `${liffUrl}?projectId=${project.id}`
+                            }
+                        ]
                     }
                 }
             ]);
@@ -206,82 +217,128 @@ const ProjectDetail: React.FC = () => {
             if (result) {
                 setModalMessage('Message sent successfully!');
                 setIsModalError(false);
-              } else {
+            } else {
                 setModalMessage('ShareTargetPicker was closed before sending.');
                 setIsModalError(true);
             }
-                        
+            setIsModalOpen(true);
+
         } catch (error) {
             console.error('Error sharing project:', error);
-            alert("An error occurred while sharing the project. Please try again.");
+            setModalMessage("An error occurred while sharing the project. Please try again.");
+            setIsModalError(true);
+            setIsModalOpen(true);
         }
     };
 
     if (error) {
-        return <div className="text-red-500">{error}</div>;
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-slate-900">
+                <div className="text-red-500 text-center p-4 bg-slate-800 rounded-lg shadow-lg">
+                    {error}
+                </div>
+            </div>
+        );
     }
 
     if (!project) {
-        return <div>Loading...</div>;
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-slate-900">
+                <Loader className="animate-spin text-blue-500" size={48} />
+            </div>
+        );
     }
 
     return (
-        <div className="container mx-auto px-4 py-8 max-w-4xl">
-            <h1 className="text-3xl font-bold mb-6">{project.title}</h1>
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                <img
-                    src={`https://picsum.photos/seed/${project.id}/800/400`}
-                    alt={project.title}
-                    className="w-full h-64 object-cover"
-                />
-                <div className="p-6">
-                    <p className="text-xl mb-4">{project.description}</p>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <p className="text-gray-600">Goal:</p>
-                            <p className="text-lg font-semibold">{project.goal} KAIA</p>
+        <div className="min-h-screen bg-slate-900 text-slate-100 py-8">
+            <div className="container mx-auto px-4 max-w-4xl">
+                <div className="flex items-center flex-wrap mb-6">
+                    <h1 className="text-3xl font-bold mr-4">{project.title}</h1>
+                    <span className="bg-slate-700 text-slate-300 px-3 py-1 rounded-full text-sm font-semibold inline-flex items-center">
+                        Project ID: {project.id}
+                    </span>
+                </div>
+                <div className="bg-slate-800 rounded-lg shadow-md overflow-hidden">
+                    <img
+                        src={getProjectImageUrl(project.id)}
+                        alt={project.title}
+                        className="w-full h-64 object-cover"
+                    />
+                    <div className="p-6">
+                        <p className="text-xl mb-6">{project.description}</p>
+                        <div className="grid grid-cols-2 gap-4 mb-6">
+                            <div className="flex items-center">
+                                <Image src="/kaia_symbol.png" alt="Goal" width={24} height={24} className="mr-2" />
+                                <div>
+                                    <p className="text-slate-400">Goal:</p>
+                                    <p className="text-lg font-semibold">{project.goal} KAIA</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center">
+                                <Image src="/kaia_symbol.png" alt="Raised" width={24} height={24} className="mr-2" />
+                                <div>
+                                    <p className="text-slate-400">Raised:</p>
+                                    <p className="text-lg font-semibold">{project.totalFunds} KAIA</p>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-gray-600">Raised:</p>
-                            <p className="text-lg font-semibold">{project.totalFunds} KAIA</p>
+                        <div className="mb-4 flex items-center">
+                            <Calendar className="mr-2 text-yellow-500" size={20} />
+                            <div>
+                                <p className="text-slate-400">Deadline:</p>
+                                <p className="text-lg">{new Date(project.deadline * 1000).toLocaleDateString()}</p>
+                            </div>
                         </div>
-                    </div>
-                    <div className="mb-4">
-                        <p className="text-gray-600">Deadline:</p>
-                        <p className="text-lg">{new Date(project.deadline * 1000).toLocaleDateString()}</p>
-                    </div>
-                    <div className="mb-4">
-                        <p className="text-gray-600">Status:</p>
-                        <p className="text-lg">{project.claimed ? 'Claimed' : 'Not Claimed'}</p>
-                    </div>
-                    <div className="mb-4">
-                        <p className="text-gray-600">Owner:</p>
-                        <p className="text-sm break-all">{project.owner}</p>
-                    </div>
-                    <div className="mt-6">
-                        <input
-                            type="number"
-                            value={donationAmount}
-                            onChange={(e) => setDonationAmount(e.target.value)}
-                            placeholder="Enter donation amount"
-                            className="w-full p-2 border rounded mb-2"
-                        />
-                        <button
-                            onClick={handleDonate}
-                            disabled={isProcessing}
-                            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded mt-6"
-                        >
-                            {isProcessing ? 'Processing...' : 'Donate with Kaia Wallet'}
-                        </button>
+                        <div className="mb-4 flex items-center">
+                            <CheckCircle className="mr-2 text-green-500" size={20} />
+                            <div>
+                                <p className="text-slate-400">Status:</p>
+                                <p className="text-lg">{project.claimed ? 'Claimed' : 'Not Claimed'}</p>
+                            </div>
+                        </div>
+                        <div className="mb-6 flex items-center">
+                            <User className="mr-2 text-purple-500" size={20} />
+                            <div>
+                                <p className="text-slate-400">Owner:</p>
+                                <p className="text-sm break-all">{project.owner}</p>
+                            </div>
+                        </div>
+                        <div className="mt-6">
+                            <input
+                                type="number"
+                                value={donationAmount}
+                                onChange={(e) => setDonationAmount(e.target.value)}
+                                placeholder="Enter donation amount"
+                                className="w-full p-2 border rounded mb-2 bg-slate-700 text-slate-100"
+                            />
+                            <button
+                                onClick={handleDonate}
+                                disabled={isProcessing}
+                                className="w-full bg-slate-700 hover:bg-slate-600 text-slate-100 font-bold py-3 px-4 rounded mt-4 transition duration-300 ease-in-out"
+                            >
+                                {isProcessing ? 'Processing...' : 'Donate with Kaia Wallet'}
+                            </button>
+                        </div>
                     </div>
                 </div>
+                <button
+                    onClick={shareProject}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 px-4 rounded mt-4 flex items-center justify-center transition duration-300 ease-in-out"
+                >
+                    <img 
+                        src="/LINE_icon.png" 
+                        alt="Share icon" 
+                        className="w-6 h-6 mr-2"
+                    />
+                    Share with Friends
+                </button>
             </div>
-            <button
-                onClick={shareProject}
-                className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded"
-            >
-                Share with Friends
-            </button>
+            <Modal 
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                message={modalMessage}
+                isError={isModalError}
+            />            
         </div>
     );
 };

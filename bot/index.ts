@@ -136,7 +136,7 @@ async function say_hello(bot: KaiaBotClient, event: MessageEvent) {
     const messages: Array<TextMessage> = [
       {
         type: "text",
-        text: "This is an example of a LINE bot for connecting to Klaytn wallets and sending transactions with WalletConnect.\n\nCommands list:\n/connect - Connect to a wallet\n/my_wallet - Show connected wallet\n/send_tx - Send transaction\n/disconnect - Disconnect from the wallet",
+        text: "Welcome Kaia ecosystem!\nPlease connect your wallet.",
         quickReply: {
           items: [
             {
@@ -155,14 +155,14 @@ async function say_hello(bot: KaiaBotClient, event: MessageEvent) {
                 text: "/my_wallet",
               },
             },
-            {
-              type: "action",
-              action: {
-                type: "message",
-                label: "/send_tx",
-                text: "/send_tx",
-              },
-            },
+            // {
+            //   type: "action",
+            //   action: {
+            //     type: "message",
+            //     label: "/send_tx",
+            //     text: "/send_tx",
+            //   },
+            // },
             {
               type: "action",
               action: {
@@ -171,14 +171,14 @@ async function say_hello(bot: KaiaBotClient, event: MessageEvent) {
                 text: "/donate",
               },
             },
-            {
-              type: "action",
-              action: {
-                type: "message",
-                label: "/project_list",
-                text: "/project_list",
-              },
-            },
+            // {
+            //   type: "action",
+            //   action: {
+            //     type: "message",
+            //     label: "/project_list",
+            //     text: "/project_list",
+            //   },
+            // },
             {
               type: "action",
               action: {
@@ -250,8 +250,6 @@ async function connect(bot: KaiaBotClient, event: MessageEvent) {
 
     const requestKey = response.data.request_key;
     const kaikasUri = `kaikas://wallet/api?request_key=${requestKey}`;
-    console.log(`requestKey: ${requestKey}`);
-
     const liffRelayUrl = `https://liff.line.me/2006143560-2EB6oe6l?uri=${encodeURIComponent(kaikasUri)}`;
 
     console.log(`uri: ${uri}`);
@@ -260,41 +258,41 @@ async function connect(bot: KaiaBotClient, event: MessageEvent) {
       let messages: Array<TextMessage> = [
         {
           type: "text",
-          text: "Choose your wallet",
+          text: "Select Wallet",
           quickReply: {
             items: [
               {
                 type: "action",
                 action: {
                   type: "uri",
-                  label: "Metamask",
-                  uri:
-                    process.env.MINI_WALLET_URL_COMPACT +
-                    "/open/wallet/?url=" +
-                    encodeURIComponent(
-                      "metamask://wc?uri=" + encodeURIComponent(uri)
-                    ),
-                },
-              },
-              {
-                type: "action",
-                action: {
-                  type: "uri",
-                  label: "Mini Wallet",
-                  uri:
-                    process.env.MINI_WALLET_URL_TALL +
-                    "/wc/?uri=" +
-                    encodeURIComponent(uri),
-                },
-              },
-              {
-                type: "action",
-                action: {
-                  type: "uri",
-                  label: "Kaikas",
+                  label: "Kaia Wallet",
                   uri: liffRelayUrl,
                 },
               },
+              {
+                type: "action",
+                action: {
+                  type: "uri",
+                  label: "Klip Wallet",
+                  uri: "https://example.com",
+                    // process.env.MINI_WALLET_URL_COMPACT +
+                    // "/open/wallet/?url=" +
+                    // encodeURIComponent(
+                    //   "metamask://wc?uri=" + encodeURIComponent(uri)
+                    // ),
+                },
+              },
+              // {
+              //   type: "action",
+              //   action: {
+              //     type: "uri",
+              //     label: "Mini Wallet",
+              //     uri:
+              //       process.env.MINI_WALLET_URL_TALL +
+              //       "/wc/?uri=" +
+              //       encodeURIComponent(uri),
+              //   },
+              // },
             ],
           },
         },
@@ -407,12 +405,13 @@ async function handleSuccessfulConnection(bot: KaiaBotClient, to: string) {
   console.log(`Retrieved wallet info for user ${to}:`, walletInfo);
   if (walletInfo) {
     let message: string;
+    const shortAddress = `${walletInfo.address.slice(0, 6)}...${walletInfo.address.slice(-4)}`;
     if (bot.isWalletConnectInfo(walletInfo)) {
-      message = `${walletInfo.metadata.name} connected successfully\nYour address: ${walletInfo.address}`;
+      message = `${walletInfo.metadata.name} connected successfully\nMy address: ${shortAddress}`;
     } else if (bot.isKaiaWalletInfo(walletInfo)) {
-      message = `Kaia Wallet connected successfully\nYour address: ${walletInfo.address}`;
+      message = `Kaia wallet is connected!\nMy address: ${shortAddress}`;
     } else {
-      message = `Wallet connected successfully\nYour address: ${walletInfo.address}`;
+      message = `Kaia wallet is connected!\nMy address: ${shortAddress}`;
     }
 
     console.log(`Wallet connected for user ${to}:`, walletInfo);
@@ -602,7 +601,7 @@ async function handleMetaMaskTransaction(bot: KaiaBotClient, to: string, walletI
     },
   });
 
-  await bot.sendMessage(to, [{ type: "text", text: `Transaction result\nhttps://baobab.klaytnscope.com/tx/${transactionId}` }]);
+  await bot.sendMessage(to, [{ type: "text", text: `Transaction result\nhttps://kairos.kaiascan.io/tx/${transactionId}` }]);
 }
 
 async function handleKaiaWalletTransaction(bot: KaiaBotClient, to: string, address: string, amount: string) {
@@ -648,7 +647,7 @@ async function handleKaiaWalletTransaction(bot: KaiaBotClient, to: string, addre
     const result = await pollKaiaWalletResult(requestKey);
     if (result && result.status === 'completed') {
       if (isKaiaWalletSendKlayResponse(result)) {
-        await bot.sendMessage(to, [{ type: "text", text: `Transaction result\nhttps://baobab.klaytnscope.com/tx/${result.result.tx_hash}` }]);
+        await bot.sendMessage(to, [{ type: "text", text: `Transaction result\nhttps://kairos.kaiascan.io/tx/${result.result.tx_hash}` }]);
       } else {
         await bot.sendMessage(to, [{ type: "text", text: "Transaction completed, but unexpected response type received." }]);
       }
@@ -822,7 +821,7 @@ async function executeDonation(bot: KaiaBotClient, event: MessageEvent, projectI
     if (result && result.status === 'completed') {
       if (isKaiaWalletExecuteContractResponse(result)) {
         const txHash = result.result.tx_hash;
-        await bot.sendMessage(to, [{ type: "text", text: `Donation successful! Transaction hash: ${txHash}\nView on explorer: https://baobab.klaytnscope.com/tx/${result.result.tx_hash}` }]);
+        await bot.sendMessage(to, [{ type: "text", text: `Donation successful!\nView on explorer: https://kairos.kaiascan.io/tx/${result.result.tx_hash}` }]);
         // Upload the certificate to IPFS and send it to the user as an ImageMessage.
         try {
           const certificateResponse = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/generate-certificate`, { txHash });
@@ -907,7 +906,7 @@ async function show_commands(bot: KaiaBotClient, event: MessageEvent) {
   const messages: Array<TextMessage> = [
     {
       type: "text",
-      text: "What do you want to do?",
+      text: "Select your action.",
       quickReply: {
         items: [
           {
@@ -926,14 +925,14 @@ async function show_commands(bot: KaiaBotClient, event: MessageEvent) {
               text: "/my_wallet",
             },
           },
-          {
-            type: "action",
-            action: {
-              type: "message",
-              label: "/send_tx",
-              text: "/send_tx",
-            },
-          },
+          // {
+          //   type: "action",
+          //   action: {
+          //     type: "message",
+          //     label: "/send_tx",
+          //     text: "/send_tx",
+          //   },
+          // },
           {
             type: "action",
             action: {
@@ -942,14 +941,14 @@ async function show_commands(bot: KaiaBotClient, event: MessageEvent) {
               text: "/donate",
             },
           },
-          {
-            type: "action",
-            action: {
-              type: "message",
-              label: "/project_list",
-              text: "/project_list",
-            },
-          },
+          // {
+          //   type: "action",
+          //   action: {
+          //     type: "message",
+          //     label: "/project_list",
+          //     text: "/project_list",
+          //   },
+          // },
           {
             type: "action",
             action: {
